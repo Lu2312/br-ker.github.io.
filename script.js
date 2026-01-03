@@ -3,6 +3,7 @@
 
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
+    loadProvidersFromDatabase(); // Cargar proveedores de la BD
     initializeSearch();
     initializeScrollAnimations();
     initializeCategoryFilters();
@@ -10,6 +11,61 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeVendorCards();
     initializeProviderFilters();
 });
+
+// Load providers from database
+function loadProvidersFromDatabase() {
+    if (typeof providersDatabase === 'undefined') {
+        console.error('Base de datos no cargada');
+        return;
+    }
+    
+    const vendorsContainer = document.getElementById('vendors-container');
+    if (!vendorsContainer) return;
+    
+    // Limpiar contenedor
+    vendorsContainer.innerHTML = '';
+    
+    // Obtener proveedores ordenados por rating
+    const providers = providersDatabase.ordenar('rating');
+    
+    // Generar HTML para cada proveedor
+    providers.forEach(provider => {
+        const card = createProviderCard(provider);
+        vendorsContainer.appendChild(card);
+    });
+    
+    console.log(`✅ ${providers.length} proveedores cargados`);
+}
+
+// Create provider card
+function createProviderCard(provider) {
+    const card = document.createElement('div');
+    card.className = 'vendor-card';
+    card.setAttribute('data-category', provider.categoria);
+    card.setAttribute('data-provider-id', provider.id);
+    
+    const contactInfo = `
+        ${provider.telefono ? `<p class="contact-info">📞 ${provider.telefono}</p>` : ''}
+        ${provider.paginaWeb ? `<p class="contact-info">🌐 <a href="${provider.paginaWeb}" target="_blank">Sitio Web</a></p>` : ''}
+    `;
+    
+    card.innerHTML = `
+        <div class="vendor-image" style="background-image: url('${provider.fotoPerfil}'); background-size: cover; background-position: center;"></div>
+        <div class="vendor-info">
+            <span class="vendor-badge">${provider.subcategoria}</span>
+            ${provider.verificado ? '<span class="verified-badge">✓ Verificado</span>' : ''}
+            <h4>${provider.nombre}</h4>
+            <div class="rating">⭐ ${provider.rating} (${provider.totalReviews})</div>
+            <p class="location">📍 ${provider.ciudad}, ${provider.estado}</p>
+            <p class="price">💰 $${provider.precioPromedio}/persona</p>
+            <p class="services">${provider.servicios.slice(0, 3).join(' • ')}</p>
+            ${contactInfo}
+            <button class="btn-contact" onclick="showProviderDetails(${provider.id})">Ver Detalles</button>
+        </div>
+    `;
+    
+    return card;
+}
 
 // Search Functionality
 function initializeSearch() {
@@ -37,15 +93,25 @@ function initializeSearch() {
 }
 
 function performSearch(category, location) {
-    // Simulate search with animation
-    const categoryText = category || 'todas las categorías';
-    const locationText = location || 'toda la República';
-    showNotification(`Buscando en ${categoryText} - ${locationText}...`, 'info');
+    // Buscar en la base de datos
+    const results = providersDatabase.buscar('', location, category === '' ? null : category);
     
-    // Filter vendors if category is selected
-    if (category) {
-        filterVendorsByCategory(category);
+    // Limpiar y mostrar resultados
+    const vendorsContainer = document.getElementById('vendors-container');
+    if (!vendorsContainer) return;
+    
+    vendorsContainer.innerHTML = '';
+    
+    if (results.length === 0) {
+        vendorsContainer.innerHTML = '<p class="no-results">No se encontraron proveedores. Intenta con otros criterios.</p>';
+        showNotification('No se encontraron resultados', 'warning');
+        return;
     }
+    
+    results.forEach(provider => {
+        const card = createProviderCard(provider);
+        vendorsContainer.appendChild(card);
+    });
     
     // Scroll to results
     setTimeout(() => {
@@ -53,9 +119,8 @@ function performSearch(category, location) {
         if (resultsSection) {
             resultsSection.scrollIntoView({ behavior: 'smooth' });
         }
-        const count = document.querySelectorAll('.vendor-card:not(.hidden)').length;
-        showNotification(`¡Encontramos ${count} proveedores!`, 'success');
-    }, 1000);
+        showNotification(`¡Encontramos ${results.length} proveedores!`, 'success');
+    }, 500);
 }
 
 // Scroll Animations
@@ -271,6 +336,15 @@ function toggleFavorite(btn) {
 }
 
 function showVendorDetails(vendorName) {
+    // Si es un ID numérico, buscar en la base de datos
+    if (typeof vendorName === 'number') {
+        const provider = providersDatabase.obtenerPorId(vendorName);
+        if (provider) {
+            showProviderDetails(provider.id);
+            return;
+        }
+    }
+    
     const modal = createModal(`
         <div class="vendor-details">
             <h2>${vendorName}</h2>
@@ -294,6 +368,169 @@ function showVendorDetails(vendorName) {
             </div>
         </div>
     `);
+}
+
+// Show provider details from database
+function showProviderDetails(providerId) {
+    const provider = providersDatabase.obtenerPorId(providerId);
+    if (!provider) {
+        showNotification('Proveedor no encontrado', 'error');
+        return;
+    }
+    
+    const horarioHTML = Object.entries(provider.horario)
+        .map(([dia, horas]) => `<p><strong>${dia.charAt(0).toUpperCase() + dia.slice(1)}:</strong> ${horas}</p>`)
+        .join('');
+    
+    const serviciosHTML = provider.servicios
+        .map(s => `<span class="service-tag">${s}</span>`)
+        .join('');
+    
+    const especialidadesHTML = provider.especialidades
+        .map(e => `<span class="specialty-tag">${e}</span>`)
+        .join('');
+    
+    const modal = createModal(`
+        <div class="provider-details">
+            <div class="provider-header">
+                <h2>${provider.nombre}</h2>
+                <div class="provider-meta">
+                    <span class="provider-badge">${provider.subcategoria}</span>
+                    ${provider.verificado ? '<span class="verified-badge-large">✓ Verificado</span>' : ''}
+                    ${provider.premium ? '<span class="premium-badge">👑 Premium</span>' : ''}
+                </div>
+                <div class="rating-large">
+                    <span class="stars">⭐ ${provider.rating}</span>
+                    <span class="reviews">(${provider.totalReviews} reseñas)</span>
+                </div>
+            </div>
+            
+            <div class="provider-gallery">
+                <div class="main-image" style="background-image: url('${provider.fotoPerfil}'); height: 400px; background-size: cover; background-position: center; border-radius: 15px; margin-bottom: 20px;"></div>
+            </div>
+            
+            <div class="provider-info-grid">
+                <div class="info-section">
+                    <h3>📍 Ubicación</h3>
+                    <p><strong>${provider.direccion}</strong></p>
+                    <p>${provider.ciudad}, ${provider.estado} ${provider.codigoPostal}</p>
+                    ${provider.googleMaps ? `<p><a href="${provider.googleMaps}" target="_blank" class="map-link">Ver en Google Maps →</a></p>` : ''}
+                </div>
+                
+                <div class="info-section">
+                    <h3>📞 Contacto</h3>
+                    <p><strong>Teléfono:</strong> <a href="tel:${provider.telefono}">${provider.telefono}</a></p>
+                    ${provider.email ? `<p><strong>Email:</strong> <a href="mailto:${provider.email}">${provider.email}</a></p>` : ''}
+                    ${provider.paginaWeb ? `<p><strong>Web:</strong> <a href="${provider.paginaWeb}" target="_blank">Visitar sitio web →</a></p>` : ''}
+                </div>
+                
+                <div class="info-section">
+                    <h3>💰 Información de Precios</h3>
+                    <p><strong>Precio promedio:</strong> $${provider.precioPromedio.toLocaleString()}/persona</p>
+                    <p><strong>Capacidad:</strong> Hasta ${provider.capacidad} personas</p>
+                </div>
+                
+                <div class="info-section">
+                    <h3>🕐 Horarios</h3>
+                    ${horarioHTML}
+                </div>
+                
+                <div class="info-section full-width">
+                    <h3>✨ Servicios</h3>
+                    <div class="tags-container">
+                        ${serviciosHTML}
+                    </div>
+                </div>
+                
+                <div class="info-section full-width">
+                    <h3>🍽️ Especialidades</h3>
+                    <div class="tags-container">
+                        ${especialidadesHTML}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="provider-actions">
+                <button class="btn-primary" onclick="contactProvider(${provider.id})">
+                    📞 Contactar Ahora
+                </button>
+                <button class="btn-secondary" onclick="saveProvider(${provider.id})">
+                    ❤️ Guardar en Favoritos
+                </button>
+                <button class="btn-secondary" onclick="shareProvider(${provider.id})">
+                    🔗 Compartir
+                </button>
+            </div>
+        </div>
+    `);
+}
+
+function contactProvider(providerId) {
+    const provider = providersDatabase.obtenerPorId(providerId);
+    if (!provider) return;
+    
+    closeModal();
+    
+    const modal = createModal(`
+        <div class="contact-modal">
+            <h2>Contactar a ${provider.nombre}</h2>
+            <p>Completa el formulario y el proveedor te contactará pronto</p>
+            <div class="contest-form">
+                <input type="text" placeholder="Tu nombre" class="modal-input">
+                <input type="email" placeholder="Tu email" class="modal-input">
+                <input type="tel" placeholder="Tu teléfono" class="modal-input">
+                <input type="date" placeholder="Fecha del evento" class="modal-input">
+                <input type="number" placeholder="Número de invitados" class="modal-input">
+                <textarea placeholder="Cuéntanos sobre tu evento..." class="modal-input" rows="4"></textarea>
+                <button class="btn-primary" onclick="sendContactForm(${providerId})">Enviar Solicitud</button>
+            </div>
+            <div class="direct-contact">
+                <h4>O contáctalos directamente:</h4>
+                <p>📞 <a href="tel:${provider.telefono}">${provider.telefono}</a></p>
+                ${provider.email ? `<p>📧 <a href="mailto:${provider.email}">${provider.email}</a></p>` : ''}
+                ${provider.paginaWeb ? `<p>🌐 <a href="${provider.paginaWeb}" target="_blank">Visitar sitio web</a></p>` : ''}
+            </div>
+        </div>
+    `);
+}
+
+function sendContactForm(providerId) {
+    const provider = providersDatabase.obtenerPorId(providerId);
+    showNotification(`Solicitud enviada a ${provider.nombre}. Te contactarán pronto.`, 'success');
+    closeModal();
+}
+
+function saveProvider(providerId) {
+    // Guardar en localStorage
+    let favorites = JSON.parse(localStorage.getItem('favoriteProviders') || '[]');
+    if (!favorites.includes(providerId)) {
+        favorites.push(providerId);
+        localStorage.setItem('favoriteProviders', JSON.stringify(favorites));
+        showNotification('Proveedor guardado en favoritos', 'success');
+    } else {
+        showNotification('Este proveedor ya está en tus favoritos', 'info');
+    }
+}
+
+function shareProvider(providerId) {
+    const provider = providersDatabase.obtenerPorId(providerId);
+    const shareText = `${provider.nombre} - ${provider.subcategoria} en ${provider.ciudad}`;
+    const shareUrl = window.location.href + '?provider=' + providerId;
+    
+    if (navigator.share) {
+        navigator.share({
+            title: provider.nombre,
+            text: shareText,
+            url: shareUrl
+        }).then(() => {
+            showNotification('Compartido exitosamente', 'success');
+        }).catch(() => {});
+    } else {
+        // Fallback: copiar al portapapeles
+        navigator.clipboard.writeText(shareUrl).then(() => {
+            showNotification('Enlace copiado al portapapeles', 'success');
+        });
+    }
 }
 
 function contactVendor() {
